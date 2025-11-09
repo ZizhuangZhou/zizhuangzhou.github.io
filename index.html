@@ -267,6 +267,7 @@
       }
 
       title   = got.title;
+      title = title.replace(/<[^>]*>/g, "");
       snippet = got.snippet;
       masked  = maskSnippet(snippet);
       showMasked();
@@ -381,3 +382,4 @@
 ver 2025-11-09  fixed-pool(seed→page) remove-title-space
 </div>
 </html>
+
