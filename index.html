@@ -53,7 +53,7 @@
   <div id="msg" class="msg"></div>
   <div id="answer" class="ok"></div>
   <div id="snippet" class="muted"></div>
-
+<script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
 <script>
 (() => {
   const API_RANDOM = "https://zh.wikipedia.org/api/rest_v1/page/random/summary";
@@ -261,8 +261,9 @@
       }
 
       title   = got.title;
-      title = got.title.replace(/^[\u200B\u200C\u200D\u202F\u00A0 ]+/, "");
-      snippet = got.snippet;
+      const conv = OpenCC.Converter({ from: 't', to: 'cn' });
+      title   = conv(got.title);
+      snippet = conv(got.snippet);
       masked  = maskSnippet(snippet);
       showMasked();
       document.getElementById("masked-title").textContent = maskTitle(title);
@@ -376,5 +377,6 @@
 ver 2025-11-09  fixed-pool(seed→page) remove-title-space
 </div>
 </html>
+
 
 
