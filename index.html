@@ -48,7 +48,7 @@
 
   <div class="stat">
     <span id="stat-attempts">已猜次数：0</span>
-    <span> | 错误：</span><span id="stat-wrongs">无</span>
+    <span> | 错误：</span><span id="stat-wrongs"></span>
   </div>
   <div id="msg" class="msg"></div>
   <div id="answer" class="ok"></div>
@@ -168,7 +168,7 @@
   }
   function updateStats() {
     elAttempts.textContent = `已猜次数：${attempts}`;
-    elWrongs.textContent = wrongs.length ? wrongs.join("") : "无";
+    elWrongs.textContent = wrongs.length ? wrongs.join("") : "";
   }
   function maskTitle(t){
     return Array.from(t).map(ch => isPunct(ch) ? ch : "□").join("");
@@ -382,4 +382,5 @@
 ver 2025-11-09  fixed-pool(seed→page) remove-title-space
 </div>
 </html>
+
 
