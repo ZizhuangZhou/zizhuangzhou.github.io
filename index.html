@@ -215,8 +215,8 @@
   }
   function buildShareURL({title, seed}) {
     const base = location.origin + location.pathname.replace(/index\.html$/,'');
-    if (title) return `${base}?title=${encodeURIComponent(title)}`;
     if (seed)  return `${base}?seed=${encodeURIComponent(seed)}`;
+    if (title) return `${base}?title=${encodeURIComponent(title)}`;
     return base;
   }
   function getParams() {
@@ -360,6 +360,7 @@
 </script>
 </body>
 <div style="margin-top:40px;font-size:12px;color:#999;text-align:center">
-ver 2025-11-09  zh-top-views + seed/share
+ver 2025-11-09  zh-top-views + seed/share 2
 </div>
 </html>
+
