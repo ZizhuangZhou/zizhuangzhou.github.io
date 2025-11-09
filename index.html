@@ -14,6 +14,7 @@
   .msg { color: #b00; font-size: 14px; }
   .ok { color: #070; }
   .muted { color: #888; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 </style>
 </head>
 <body>
@@ -31,6 +32,17 @@
   <div class="row">
     <input id="guess" type="text" placeholder="输入一个汉字或直接输入标题…" />
     <button id="btn-guess" disabled>提交</button>
+  </div>
+
+  <!-- 新增：房间码/分享 -->
+  <div class="row">
+    <input id="seed" type="text" placeholder="输入房间码/种子，例：abc123" />
+    <button id="btn-seed">用种子开局</button>
+    <button id="btn-share" disabled>复制本局链接</button>
+  </div>
+  <div class="stat mono">
+    <span id="round-seed" class="muted">房间码：—</span>
+    <span id="share-url" class="muted" style="margin-left:12px"></span>
   </div>
 
   <div class="stat">
@@ -53,6 +65,7 @@
   let guessed = new Set();
   let wrongs = [];
   let attempts = 0;
+  let currentSeed = "";
 
   const elMasked = document.getElementById("masked");
   const elGuess  = document.getElementById("guess");
@@ -65,26 +78,24 @@
   const elMsg = document.getElementById("msg");
   const elAns = document.getElementById("answer");
   const elSnip = document.getElementById("snippet");
+  // 新增引用
+  const elSeed = document.getElementById("seed");
+  const elBtnSeed = document.getElementById("btn-seed");
+  const elBtnShare = document.getElementById("btn-share");
+  const elRoundSeed = document.getElementById("round-seed");
+  const elShareUrl = document.getElementById("share-url");
 
-  function isPunct(ch) {
-    // Unicode 标点
-    return /\p{P}/u.test(ch);
-  }
-  function isHan(ch) {
-    return /\p{Script=Han}/u.test(ch);
-  }
+  function isPunct(ch) { return /\p{P}/u.test(ch); }
+  function isHan(ch) { return /\p{Script=Han}/u.test(ch); }
   function maskSnippet(s) {
     return Array.from(s).map(ch => isPunct(ch) ? ch : (ch === "\n" ? "\n" : "□")).join("");
   }
   function reveal(snippet, current, ch) {
-    const a = Array.from(snippet);
-    const b = Array.from(current);
+    const a = Array.from(snippet), b = Array.from(current);
     for (let i = 0; i < a.length; i++) if (a[i] === ch) b[i] = ch;
     return b.join("");
   }
-  function normalizeTitle(s) {
-    return s.replace(/[\p{P}\s]/gu, "").toLowerCase();
-  }
+  function normalizeTitle(s) { return s.replace(/[\p{P}\s]/gu, "").toLowerCase(); }
   function setUIEnabled(enabled) {
     elBtnGuess.disabled = !enabled;
     elBtnHint.disabled = !enabled;
@@ -95,21 +106,15 @@
     elAttempts.textContent = `已猜次数：${attempts}`;
     elWrongs.textContent = wrongs.length ? wrongs.join("") : "无";
   }
-  function showMasked() {
-    elMasked.textContent = masked;
-  }
+  function showMasked() { elMasked.textContent = masked; }
   function resetMsg() { elMsg.textContent = ""; }
-  function say(t, ok=false) {
-    elMsg.textContent = t;
-    elMsg.className = ok ? "ok" : "msg";
-  }
+  function say(t, ok=false) { elMsg.textContent = t; elMsg.className = ok ? "ok" : "msg"; }
 
+  // —— 热门池与摘要 ——
   async function fetchTopArticles(back=3) {
-    const now = new Date();                  // 用 UTC 避免跨区当天还没产出
+    const now = new Date();
     for (let i=1; i<=back; i++) {
-      const dt = new Date(Date.UTC(
-        now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - i
-      ));
+      const dt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - i));
       const y  = dt.getUTCFullYear();
       const mm = String(dt.getUTCMonth()+1).padStart(2,"0");
       const dd = String(dt.getUTCDate()).padStart(2,"0");
@@ -118,7 +123,6 @@
       if (!r.ok) continue;
       const data = await r.json();
       if (!data?.items?.[0]?.articles) continue;
-      // 过滤首页、特殊页、消歧、列表等噪声
       const bad = new Set(["Main_Page","首页","维基百科:首页"]);
       const arts = data.items[0].articles
         .map(a => a.article)
@@ -132,8 +136,8 @@
     throw new Error("没有拿到热门列表");
   }
 
-  async function fetchSummaryByTitle(title, minLen=100, maxLen=500) {
-    const url = `https://zh.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
+  async function fetchSummaryByTitle(t, minLen=100, maxLen=500) {
+    const url = `https://zh.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(t)}`;
     const r = await fetch(url, {headers:{'Accept':'application/json'}});
     if (!r.ok) throw new Error("summary 请求失败");
     const data = await r.json();
@@ -143,15 +147,12 @@
     return { title: data.title.trim(), snippet: ex.slice(0, maxLen) };
   }
 
-  // “热门模式”：先取 topN（默认前500）里随机抽样多次
   async function fetchPopular(minLen=100, maxLen=500, topN=500, tries=20) {
     const pool = await fetchTopArticles(3);
     const cand = pool.slice(0, topN);
     for (let i=0; i<tries; i++) {
       const t = cand[Math.floor(Math.random()*cand.length)];
-      try {
-        return await fetchSummaryByTitle(t, minLen, maxLen);
-      } catch { /* 换下一个 */ }
+      try { return await fetchSummaryByTitle(t, minLen, maxLen); } catch {}
     }
     throw new Error("热门池未命中");
   }
@@ -163,24 +164,68 @@
       const data = await r.json();
       if (!data?.extract || data.type === "disambiguation") continue;
       let ex = data.extract.replace(/\u00A0/g," ").replace(/\s+/g," ").trim();
-      if (ex.length >= minLen) {
-        return { title: data.title.trim(), snippet: ex.slice(0, maxLen) };
-      }
+      if (ex.length >= minLen) return { title: data.title.trim(), snippet: ex.slice(0, maxLen) };
     }
     throw new Error("未能获取合适的随机条目");
   }
 
   function fullRevealed() {
-    // 只要所有非标点位置都被揭示，就提示去猜标题
-    const a = Array.from(snippet);
-    const b = Array.from(masked);
-    for (let i=0; i<a.length; i++) {
-      if (!isPunct(a[i]) && a[i] !== "\n" && b[i] === "□") return false;
-    }
+    const a = Array.from(snippet), b = Array.from(masked);
+    for (let i=0; i<a.length; i++) if (!isPunct(a[i]) && a[i] !== "\n" && b[i] === "□") return false;
     return true;
   }
 
-  async function startNew() {
+  // —— 房间码 / 种子 / 分享 —— 
+  function fnv1a32(str) {
+    let h = 0x811c9dc5 >>> 0;
+    for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    return h >>> 0;
+  }
+  function yestUTC() {
+    const now = new Date();
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
+  }
+  async function fetchTopYesterday() {
+    const d = yestUTC();
+    const y  = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth()+1).padStart(2,"0");
+    const dd = String(d.getUTCDate()).padStart(2,"0");
+    const url = API_TOP(y, mm, dd);
+    const r = await fetch(url, {headers:{'Accept':'application/json'}});
+    if (!r.ok) throw new Error("top失败");
+    const data = await r.json();
+    const bad = new Set(["Main_Page","首页","维基百科:首页"]);
+    return (data.items?.[0]?.articles || [])
+      .map(a => a.article)
+      .filter(t =>
+        !bad.has(t) &&
+        !/^特殊:|^Wikipedia:|^维基百科:|^File:|^文件:|^Category:|^分类:/.test(t) &&
+        !/消歧义/.test(t)
+      );
+  }
+  async function fetchBySeed(seed, minLen=120, maxLen=500) {
+    const pool = await fetchTopYesterday();
+    if (!pool.length) throw new Error("热门为空");
+    const base = fnv1a32(seed) % pool.length;
+    for (let k=0; k<30; k++) {
+      const t = pool[(base + k) % pool.length];
+      try { return await fetchSummaryByTitle(t, minLen, maxLen); } catch {}
+    }
+    throw new Error("种子未命中合格条目");
+  }
+  function buildShareURL({title, seed}) {
+    const base = location.origin + location.pathname.replace(/index\.html$/,'');
+    if (title) return `${base}?title=${encodeURIComponent(title)}`;
+    if (seed)  return `${base}?seed=${encodeURIComponent(seed)}`;
+    return base;
+  }
+  function getParams() {
+    const p = new URLSearchParams(location.search);
+    return { title: p.get("title") || "", seed: p.get("seed") || "" };
+  }
+
+  // —— 开局 ——（支持 title / seed / 默认热门→随机）
+  async function startNew(options = {}) {
     setUIEnabled(false);
     elAns.textContent = "";
     elSnip.textContent = "";
@@ -188,31 +233,55 @@
     elMsg.textContent = "";
     elGuess.value = "";
     guessed = new Set(); wrongs = []; attempts = 0; updateStats();
+    elShareUrl.textContent = ""; elBtnShare.disabled = true;
+
     try {
-      // 先热门，失败再随机
-      const got = await fetchPopular(120, 500, 500, 24).catch(()=>fetchRandom(120, 500, 12));
-      title = got.title;
+      let got, seedUsed = "";
+
+      if (options.title) {
+        got = await fetchSummaryByTitle(options.title, 120, 500);
+        seedUsed = options.seed || "";
+      } else if (options.seed) {
+        got = await fetchBySeed(options.seed, 120, 500);
+        seedUsed = options.seed;
+      } else {
+        got = await fetchPopular(120, 500, 500, 24).catch(()=>fetchRandom(120, 500, 12));
+        seedUsed = Math.random().toString(36).slice(2, 8); // 自动生成房间码
+      }
+
+      title   = got.title;
       snippet = got.snippet;
-      masked = maskSnippet(snippet);
+      masked  = maskSnippet(snippet);
       showMasked();
-      say("已开始（热门池）。输入一个汉字进行猜测，或输入多个字直接猜标题。", true);
+      say("已开始。输入一个汉字进行猜测，或输入多个字直接猜标题。", true);
       setUIEnabled(true);
       elGuess.focus();
+
+      currentSeed = seedUsed;
+      elRoundSeed.textContent = "房间码：" + (currentSeed || "—");
+
+      const share = buildShareURL({title, seed: currentSeed});
+      elShareUrl.textContent = share;
+      elBtnShare.disabled = false;
+      elBtnShare.onclick = async () => {
+        try { await navigator.clipboard.writeText(share); say("已复制本局链接", true); }
+        catch { say("复制失败，请手动复制上方链接"); }
+      };
+
     } catch(e) {
       say("拉取失败，稍后重试。");
       setUIEnabled(false);
     }
   }
 
+  // —— 交互 —— 
   function onGuess() {
     resetMsg();
     const s = elGuess.value.trim();
     if (!s) return;
 
-    // 多字符 => 猜标题
     if (Array.from(s).length > 1) {
-      attempts += 1;
-      updateStats();
+      attempts += 1; updateStats();
       if (normalizeTitle(s) === normalizeTitle(title)) {
         say("命中标题。胜利。", true);
         elAns.textContent = `答案：${title}`;
@@ -221,54 +290,37 @@
       } else {
         say("标题不正确。");
       }
-      elGuess.value = "";
-      return;
+      elGuess.value = ""; return;
     }
 
-    // 单字符 => 需是汉字
     const ch = s;
     if (!isHan(ch)) { say("请输入一个汉字或直接输入标题。"); return; }
+    if (guessed.has(ch)) { say("该字已猜过，不计入次数。"); elGuess.value = ""; return; }
 
-    if (guessed.has(ch)) {
-      say("该字已猜过，不计入次数。");
-      elGuess.value = "";
-      return;
-    }
     guessed.add(ch);
     attempts += 1;
 
     if (Array.from(snippet).includes(ch)) {
       masked = reveal(snippet, masked, ch);
-      showMasked();
-      say("命中。", true);
+      showMasked(); say("命中。", true);
     } else {
       wrongs.push(ch);
-      showMasked();
-      say("未命中。");
+      showMasked(); say("未命中。");
     }
     updateStats();
     elGuess.value = "";
 
-    if (fullRevealed()) {
-      say("你已揭示全部内容。直接输入条目全名来获胜。", true);
-    }
+    if (fullRevealed()) say("你已揭示全部内容。直接输入条目全名来获胜。", true);
   }
 
   function onHint() {
-    // 给第一个“尚未揭示”的非标点字符
-    const A = Array.from(snippet);
-    const B = Array.from(masked);
+    const A = Array.from(snippet), B = Array.from(masked);
     for (let i=0; i<A.length; i++) {
       if (!isPunct(A[i]) && A[i] !== "\n" && B[i] === "□") {
         const hintChar = A[i];
-        if (!guessed.has(hintChar)) {
-          guessed.add(hintChar);
-          attempts += 1; // 提示计一次
-          updateStats();
-        }
+        if (!guessed.has(hintChar)) { guessed.add(hintChar); attempts += 1; updateStats(); }
         masked = reveal(snippet, masked, hintChar);
-        showMasked();
-        say("已给提示：" + hintChar, true);
+        showMasked(); say("已给提示：" + hintChar, true);
         if (fullRevealed()) say("你已揭示全部内容。直接输入条目全名来获胜。", true);
         return;
       }
@@ -283,23 +335,31 @@
   }
 
   // 事件绑定
-  elBtnNew.addEventListener("click", startNew);
+  elBtnNew.addEventListener("click", () => startNew());
   elBtnGuess.addEventListener("click", onGuess);
   elBtnHint.addEventListener("click", onHint);
   elBtnGiveUp.addEventListener("click", onGiveUp);
+  elGuess.addEventListener("keydown", (e) => { if (e.key === "Enter") onGuess(); });
 
-  elGuess.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") onGuess();
+  elBtnSeed.addEventListener("click", () => {
+    const s = elSeed.value.trim();
+    if (!s) { say("请输入房间码/种子后再开始"); return; }
+    startNew({seed: s});
   });
 
-  // 首次自动开始
-  startNew();
+  // 首次自动：带 ?title 或 ?seed 则按其开局，否则默认
+  (function bootstrap() {
+    const p = new URLSearchParams(location.search);
+    const title = p.get("title") || "";
+    const seed  = p.get("seed")  || "";
+    if (title) startNew({title});
+    else if (seed) startNew({seed});
+    else startNew();
+  })();
 })();
 </script>
 </body>
-<div style="margin-top:40px;font-size:12px;color:#999;">
-ver 2025-11-09  zh-cn(top-views)
+<div style="margin-top:40px;font-size:12px;color:#999;text-align:center">
+ver 2025-11-09  zh-top-views + seed/share
 </div>
 </html>
-
-
