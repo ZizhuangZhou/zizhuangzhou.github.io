@@ -27,6 +27,7 @@
     <button id="btn-giveup" disabled>放弃</button>
   </div>
 
+  <div id="masked-title" class="mono" style="margin-bottom:6px"></div>
   <div id="masked"></div>
 
   <div class="row">
@@ -168,6 +169,9 @@
     elAttempts.textContent = `已猜次数：${attempts}`;
     elWrongs.textContent = wrongs.length ? wrongs.join("") : "无";
   }
+  function maskTitle(t){
+    return Array.from(t).map(ch => isPunct(ch) ? ch : "□").join("");
+  }
   function showMasked() { elMasked.textContent = masked; }
   function resetMsg() { elMsg.textContent = ""; }
   function say(t, ok=false) { elMsg.textContent = t; elMsg.className = ok ? "ok" : "msg"; }
@@ -260,6 +264,7 @@
       snippet = got.snippet;
       masked  = maskSnippet(snippet);
       showMasked();
+      document.getElementById("masked-title").textContent = maskTitle(title);
       say("已开始。输入一个汉字进行猜测，或输入多个字直接猜标题。", true);
       setUIEnabled(true);
       elGuess.focus();
@@ -315,6 +320,8 @@
       showMasked(); say("未命中。");
     }
     updateStats();
+    document.getElementById("masked-title").textContent =
+      Array.from(title).map(ch => guessed.has(ch) ? ch : (isPunct(ch)?ch:"□")).join("");
     elGuess.value = "";
 
     if (fullRevealed()) say("你已揭示全部内容。直接输入条目全名来获胜。", true);
@@ -365,6 +372,7 @@
 </script>
 </body>
 <div style="margin-top:40px;font-size:12px;color:#999;text-align:center">
-ver 2025-11-09  fixed-pool(seed→page) permanent
+ver 2025-11-09  fixed-pool(seed→page) title
 </div>
 </html>
+
