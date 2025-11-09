@@ -56,7 +56,7 @@
 <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
 <script>
 (() => {
-  const WORKER = "https://quiet-dust-e17b.zhouzizhuang.workers.dev";
+  const WORKER = "https://api.wikiguessing.space";
   const API_RANDOM = `${WORKER}/random`;
   const API_SUMMARY = (t) => `${WORKER}/summary?title=${encodeURIComponent(t)}`;
   const API_TOP = (y,m,d) => `${WORKER}/top?date=${y}/${m}/${d}`;
@@ -389,6 +389,7 @@
 ver 2025-11-09  fixed-pool(seed→page) remove-title-space
 </div>
 </html>
+
 
 
 
