@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>维基简介猜字游戏</title>
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif; margin: 20px; line-height: 1.6; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+  #masked { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 12px; border: 1px solid #ddd; border-radius: 8px; min-height: 6em; }
+  .stat { font-size: 14px; color: #555; }
+  button { padding: 8px 12px; }
+  input[type="text"] { padding: 8px; width: min(560px, 90vw); }
+  .msg { color: #b00; font-size: 14px; }
+  .ok { color: #070; }
+  .muted { color: #888; }
+</style>
+</head>
+<body>
+  <h1>维基简介猜字游戏</h1>
+  <p class="muted">规则：只保留标点，其它位置显示“□”。每次可猜一个汉字；输入多个字视为“猜标题”。重复字符不计数。可用提示或放弃。</p>
+
+  <div class="row">
+    <button id="btn-new">开始新一局</button>
+    <button id="btn-hint" disabled>提示</button>
+    <button id="btn-giveup" disabled>放弃</button>
+  </div>
+
+  <div id="masked"></div>
+
+  <div class="row">
+    <input id="guess" type="text" placeholder="输入一个汉字或直接输入标题…" />
+    <button id="btn-guess" disabled>提交</button>
+  </div>
+
+  <div class="stat">
+    <span id="stat-attempts">已猜次数：0</span>
+    <span> | 错误：</span><span id="stat-wrongs">无</span>
+  </div>
+  <div id="msg" class="msg"></div>
+  <div id="answer" class="ok"></div>
+  <div id="snippet" class="muted"></div>
+
+<script>
+(() => {
+  const API = "https://zh.wikipedia.org/api/rest_v1/page/random/summary";
+
+  let title = "";
+  let snippet = "";
+  let masked = "";
+  let guessed = new Set();
+  let wrongs = [];
+  let attempts = 0;
+
+  const elMasked = document.getElementById("masked");
+  const elGuess  = document.getElementById("guess");
+  const elBtnGuess = document.getElementById("btn-guess");
+  const elBtnNew = document.getElementById("btn-new");
+  const elBtnHint = document.getElementById("btn-hint");
+  const elBtnGiveUp = document.getElementById("btn-giveup");
+  const elAttempts = document.getElementById("stat-attempts");
+  const elWrongs = document.getElementById("stat-wrongs");
+  const elMsg = document.getElementById("msg");
+  const elAns = document.getElementById("answer");
+  const elSnip = document.getElementById("snippet");
+
+  function isPunct(ch) {
+    // Unicode 标点
+    return /\p{P}/u.test(ch);
+  }
+  function isHan(ch) {
+    return /\p{Script=Han}/u.test(ch);
+  }
+  function maskSnippet(s) {
+    return Array.from(s).map(ch => isPunct(ch) ? ch : (ch === "\n" ? "\n" : "□")).join("");
+  }
+  function reveal(snippet, current, ch) {
+    const a = Array.from(snippet);
+    const b = Array.from(current);
+    for (let i = 0; i < a.length; i++) if (a[i] === ch) b[i] = ch;
+    return b.join("");
+  }
+  function normalizeTitle(s) {
+    return s.replace(/[\p{P}\s]/gu, "").toLowerCase();
+  }
+  function setUIEnabled(enabled) {
+    elBtnGuess.disabled = !enabled;
+    elBtnHint.disabled = !enabled;
+    elBtnGiveUp.disabled = !enabled;
+    elGuess.disabled = !enabled;
+  }
+  function updateStats() {
+    elAttempts.textContent = `已猜次数：${attempts}`;
+    elWrongs.textContent = wrongs.length ? wrongs.join("") : "无";
+  }
+  function showMasked() {
+    elMasked.textContent = masked;
+  }
+  function resetMsg() { elMsg.textContent = ""; }
+  function say(t, ok=false) {
+    elMsg.textContent = t;
+    elMsg.className = ok ? "ok" : "msg";
+  }
+
+  async function fetchRandom(minLen=100, maxLen=500, tries=10) {
+    for (let i=0; i<tries; i++) {
+      const r = await fetch(API, { headers: { "Accept": "application/json" }});
+      if (!r.ok) continue;
+      const data = await r.json();
+      // 排除消歧义，确保有简介
+      if (!data || !data.extract || data.type === "disambiguation") continue;
+      const t = (data.title || "").trim();
+      let ex = (data.extract || "").replace(/\u00A0/g, " ");
+      ex = ex.replace(/\s+/g, " ").trim();
+      if (ex.length >= minLen) {
+        return { title: t, snippet: ex.slice(0, maxLen) };
+      }
+    }
+    throw new Error("未能获取合适的随机条目");
+  }
+
+  function fullRevealed() {
+    // 只要所有非标点位置都被揭示，就提示去猜标题
+    const a = Array.from(snippet);
+    const b = Array.from(masked);
+    for (let i=0; i<a.length; i++) {
+      if (!isPunct(a[i]) && a[i] !== "\n" && b[i] === "□") return false;
+    }
+    return true;
+  }
+
+  async function startNew() {
+    setUIEnabled(false);
+    elAns.textContent = "";
+    elSnip.textContent = "";
+    elMasked.textContent = "加载中…";
+    elMsg.textContent = "";
+    elGuess.value = "";
+    guessed = new Set();
+    wrongs = [];
+    attempts = 0;
+    updateStats();
+    try {
+      const got = await fetchRandom(100, 500, 12);
+      title = got.title;
+      snippet = got.snippet;
+      masked = maskSnippet(snippet);
+      showMasked();
+      say("已开始。输入一个汉字进行猜测，或输入多个字直接猜标题。", true);
+      setUIEnabled(true);
+      elGuess.focus();
+    } catch (e) {
+      say("拉取失败，稍后重试。");
+      setUIEnabled(false);
+    }
+  }
+
+  function onGuess() {
+    resetMsg();
+    const s = elGuess.value.trim();
+    if (!s) return;
+
+    // 多字符 => 猜标题
+    if (Array.from(s).length > 1) {
+      attempts += 1;
+      updateStats();
+      if (normalizeTitle(s) === normalizeTitle(title)) {
+        say("命中标题。胜利。", true);
+        elAns.textContent = `答案：${title}`;
+        elSnip.textContent = `原文片段：${snippet}`;
+        setUIEnabled(false);
+      } else {
+        say("标题不正确。");
+      }
+      elGuess.value = "";
+      return;
+    }
+
+    // 单字符 => 需是汉字
+    const ch = s;
+    if (!isHan(ch)) { say("请输入一个汉字或直接输入标题。"); return; }
+
+    if (guessed.has(ch)) {
+      say("该字已猜过，不计入次数。");
+      elGuess.value = "";
+      return;
+    }
+    guessed.add(ch);
+    attempts += 1;
+
+    if (Array.from(snippet).includes(ch)) {
+      masked = reveal(snippet, masked, ch);
+      showMasked();
+      say("命中。", true);
+    } else {
+      wrongs.push(ch);
+      showMasked();
+      say("未命中。");
+    }
+    updateStats();
+    elGuess.value = "";
+
+    if (fullRevealed()) {
+      say("你已揭示全部内容。直接输入条目全名来获胜。", true);
+    }
+  }
+
+  function onHint() {
+    // 给第一个“尚未揭示”的非标点字符
+    const A = Array.from(snippet);
+    const B = Array.from(masked);
+    for (let i=0; i<A.length; i++) {
+      if (!isPunct(A[i]) && A[i] !== "\n" && B[i] === "□") {
+        const hintChar = A[i];
+        if (!guessed.has(hintChar)) {
+          guessed.add(hintChar);
+          attempts += 1; // 提示计一次
+          updateStats();
+        }
+        masked = reveal(snippet, masked, hintChar);
+        showMasked();
+        say("已给提示：" + hintChar, true);
+        if (fullRevealed()) say("你已揭示全部内容。直接输入条目全名来获胜。", true);
+        return;
+      }
+    }
+    say("无可用提示。");
+  }
+
+  function onGiveUp() {
+    elAns.textContent = `放弃。本次答案：${title}`;
+    elSnip.textContent = `原文片段：${snippet}`;
+    setUIEnabled(false);
+  }
+
+  // 事件绑定
+  elBtnNew.addEventListener("click", startNew);
+  elBtnGuess.addEventListener("click", onGuess);
+  elBtnHint.addEventListener("click", onHint);
+  elBtnGiveUp.addEventListener("click", onGiveUp);
+
+  elGuess.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") onGuess();
+  });
+
+  // 首次自动开始
+  startNew();
+})();
+</script>
+</body>
+</html>
