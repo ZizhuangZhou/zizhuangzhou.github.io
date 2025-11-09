@@ -191,21 +191,19 @@
       t.map(ch => guessed.has(ch) ? ch : (isPunct(ch)?ch:"□")).join("");
   }
 
-  // —— 摘要获取 ——
   async function fetchSummaryByTitle(t, minLen=120, maxLen=500) {
-  const url = `https://zh.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(t)}?redirect=true`;
-  const r = await fetch(url);
-  if (!r.ok) throw new Error("summary 请求失败");
-  const data = await r.json();
-  if (!data?.extract || data.type === "disambiguation") throw new Error("不合格");
-
-  // 用简体显示标题（titles.display），fallback 到 title
-  const disp = (data.titles && (data.titles.display || data.title)) || data.title;
-
-  let ex = (data.extract || "").replace(/\u00A0/g," ").replace(/\s+/g," ").trim();
-  if (ex.length < minLen) throw new Error("过短");
-  return { title: disp.trim(), snippet: ex.slice(0, maxLen) };
-}
+    const r = await fetch(API_SUMMARY(t));
+    if (!r.ok) throw new Error("summary 请求失败");
+    const data = await r.json();
+    if (!data?.extract || data.type === "disambiguation") throw new Error("不合格");
+  
+    const disp = (data.titles && (data.titles.display || data.title)) || data.title;
+    const clean = String(disp).replace(/<[^>]*>/g, "");  // 去 span
+  
+    let ex = String(data.extract).replace(/\u00A0/g, " ").replace(/\s+/g, " ").trim();
+    if (ex.length < minLen) throw new Error("过短");
+    return { title: clean.trim(), snippet: ex.slice(0, maxLen) };
+  }
 
   // —— 种子→条目（固定池） ——
   async function fetchBySeed(seed, minLen=120, maxLen=500) {
@@ -391,6 +389,7 @@
 ver 2025-11-09  fixed-pool(seed→page) remove-title-space
 </div>
 </html>
+
 
 
 
