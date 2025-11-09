@@ -28,7 +28,7 @@
 </head>
 <body>
   <h1>维基简介猜字游戏</h1>
-  <p class="muted">规则：只保留标点，其它位置显示“□”。每次可猜一个汉字；输入多个字视为“猜标题”。重复字符不计数。可用提示或放弃。</p>
+  <p class="muted">规则：只保留标点，其它位置显示“⬜”。每次可猜一个汉字；输入多个字视为“猜标题”。重复字符不计数。可用提示或放弃。</p>
 
   <div class="row">
     <button id="btn-new">开始新一局</button>
@@ -244,7 +244,7 @@
 
   function fullRevealed() {
     const a = Array.from(snippet), b = Array.from(masked);
-    for (let i=0;i<a.length;i++) if (!isPunct(a[i]) && a[i] !== "\n" && b[i] === "□") return false;
+    for (let i=0;i<a.length;i++) if (!isPunct(a[i]) && a[i] !== "\n" && b[i] === "MASK") return false;
     return true;
   }
 
@@ -349,7 +349,7 @@
   function onHint() {
     const A = Array.from(snippet), B = Array.from(masked);
     for (let i=0;i<A.length;i++) {
-      if (!isPunct(A[i]) && A[i] !== "\n" && B[i] === "□") {
+      if (!isPunct(A[i]) && A[i] !== "\n" && B[i] === "MASK") {
         const hintChar = A[i];
         if (!guessed.has(hintChar)) { 
           guessed.add(hintChar); attempts += 1;
@@ -396,3 +396,4 @@
 </script>
 </body>
 </html>
+
