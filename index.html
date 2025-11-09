@@ -34,7 +34,7 @@
     <button id="btn-guess" disabled>提交</button>
   </div>
 
-  <!-- 新增：房间码/分享 -->
+  <!-- 房间码/分享 -->
   <div class="row">
     <input id="seed" type="text" placeholder="输入房间码/种子，例：abc123" />
     <button id="btn-seed">用种子开局</button>
@@ -56,9 +56,70 @@
 <script>
 (() => {
   const API_RANDOM = "https://zh.wikipedia.org/api/rest_v1/page/random/summary";
-  const API_TOP = (y,m,d) =>
-    `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/zh.wikipedia/all-access/${y}/${m}/${d}`;
+  const API_SUMMARY = (t) => `https://zh.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(t)}`;
+  const API_TOP = (y,m,d) => `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/zh.wikipedia/all-access/${y}/${m}/${d}`;
 
+  // —— 固定候选池：若干固定日期，确保 “seed→条目” 永久稳定 ——
+  const FIXED_DATES = [
+    {y: 2024, m: 1, d: 1},
+    {y: 2024, m: 7, d: 1},
+    {y: 2025, m: 1, d: 1},
+    {y: 2025, m: 5, d: 1}
+  ];
+  const TOPN_FIXED = 1000;
+  const FIXED_POOL_KEY = "wiki_guess_fixed_pool_v1";
+  // 兜底硬编码小池（接口失败仍可工作）
+  const FALLBACK_POOL = [
+    "中国","美国","日本","俄罗斯","北京","上海","台北","香港","广州","深圳",
+    "周杰伦","成龙","张学友","刘德华","林俊杰",
+    "篮球","足球","羽毛球","乒乓球","网球",
+    "人工智能","机器学习","深度学习","神经网络",
+    "第二次世界大战","冷战","罗马帝国","秦朝","汉朝","唐朝","宋朝","明朝","清朝",
+    "计算机科学","互联网","操作系统","Linux","Python","C语言","Java","算法"
+  ];
+
+  let FIXED_POOL = null;
+
+  async function fetchTopByDate(y, m, d) {
+    const mm = String(m).padStart(2,"0");
+    const dd = String(d).padStart(2,"0");
+    const r = await fetch(API_TOP(y, mm, dd), {headers:{Accept:"application/json"}});
+    if (!r.ok) throw new Error("top失败");
+    const data = await r.json();
+    const bad = new Set(["Main_Page","首页","维基百科:首页"]);
+    return (data.items?.[0]?.articles || [])
+      .map(a => a.article)
+      .filter(t =>
+        !bad.has(t) &&
+        !/^特殊:|^Wikipedia:|^维基百科:|^File:|^文件:|^Category:|^分类:/.test(t) &&
+        !/消歧义/.test(t)
+      )
+      .slice(0, TOPN_FIXED);
+  }
+
+  async function getFixedPool() {
+    if (FIXED_POOL) return FIXED_POOL;
+    // 本地缓存命中直接用（保证稳定）
+    try {
+      const cached = JSON.parse(localStorage.getItem(FIXED_POOL_KEY) || "null");
+      if (Array.isArray(cached) && cached.length) {
+        FIXED_POOL = cached;
+        return FIXED_POOL;
+      }
+    } catch {}
+    // 拉取并合并去重
+    const sets = [];
+    for (const d of FIXED_DATES) {
+      try { sets.push(await fetchTopByDate(d.y, d.m, d.d)); } catch {}
+    }
+    const merged = Array.from(new Set(sets.flat()));
+    FIXED_POOL = merged.length ? merged : FALLBACK_POOL.slice();
+    // 写入缓存
+    try { localStorage.setItem(FIXED_POOL_KEY, JSON.stringify(FIXED_POOL)); } catch {}
+    return FIXED_POOL;
+  }
+
+  // —— 游戏状态 ——
   let title = "";
   let snippet = "";
   let masked = "";
@@ -67,6 +128,7 @@
   let attempts = 0;
   let currentSeed = "";
 
+  // —— DOM 引用 ——
   const elMasked = document.getElementById("masked");
   const elGuess  = document.getElementById("guess");
   const elBtnGuess = document.getElementById("btn-guess");
@@ -78,21 +140,21 @@
   const elMsg = document.getElementById("msg");
   const elAns = document.getElementById("answer");
   const elSnip = document.getElementById("snippet");
-  // 新增引用
   const elSeed = document.getElementById("seed");
   const elBtnSeed = document.getElementById("btn-seed");
   const elBtnShare = document.getElementById("btn-share");
   const elRoundSeed = document.getElementById("round-seed");
   const elShareUrl = document.getElementById("share-url");
 
+  // —— 工具函数 ——
   function isPunct(ch) { return /\p{P}/u.test(ch); }
   function isHan(ch) { return /\p{Script=Han}/u.test(ch); }
   function maskSnippet(s) {
     return Array.from(s).map(ch => isPunct(ch) ? ch : (ch === "\n" ? "\n" : "□")).join("");
   }
-  function reveal(snippet, current, ch) {
-    const a = Array.from(snippet), b = Array.from(current);
-    for (let i = 0; i < a.length; i++) if (a[i] === ch) b[i] = ch;
+  function reveal(sn, cur, ch) {
+    const a = Array.from(sn), b = Array.from(cur);
+    for (let i=0;i<a.length;i++) if (a[i] === ch) b[i] = ch;
     return b.join("");
   }
   function normalizeTitle(s) { return s.replace(/[\p{P}\s]/gu, "").toLowerCase(); }
@@ -109,36 +171,19 @@
   function showMasked() { elMasked.textContent = masked; }
   function resetMsg() { elMsg.textContent = ""; }
   function say(t, ok=false) { elMsg.textContent = t; elMsg.className = ok ? "ok" : "msg"; }
-
-  // —— 热门池与摘要 ——
-  async function fetchTopArticles(back=3) {
-    const now = new Date();
-    for (let i=1; i<=back; i++) {
-      const dt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - i));
-      const y  = dt.getUTCFullYear();
-      const mm = String(dt.getUTCMonth()+1).padStart(2,"0");
-      const dd = String(dt.getUTCDate()).padStart(2,"0");
-      const url = API_TOP(y, mm, dd);
-      const r = await fetch(url, {headers:{'Accept':'application/json'}});
-      if (!r.ok) continue;
-      const data = await r.json();
-      if (!data?.items?.[0]?.articles) continue;
-      const bad = new Set(["Main_Page","首页","维基百科:首页"]);
-      const arts = data.items[0].articles
-        .map(a => a.article)
-        .filter(t =>
-          !bad.has(t) &&
-          !/^特殊:|^Wikipedia:|^维基百科:|^File:|^文件:|^Category:|^分类:/.test(t) &&
-          !/消歧义/.test(t)
-        );
-      if (arts.length) return arts;
-    }
-    throw new Error("没有拿到热门列表");
+  function fnv1a32(str) {
+    let h = 0x811c9dc5 >>> 0;
+    for (let i=0;i<str.length;i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    return h >>> 0;
+  }
+  function buildShareURL({seed}) {
+    const base = location.origin + location.pathname.replace(/index\.html$/,'');
+    return seed ? `${base}?seed=${encodeURIComponent(seed)}` : base;
   }
 
-  async function fetchSummaryByTitle(t, minLen=100, maxLen=500) {
-    const url = `https://zh.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(t)}`;
-    const r = await fetch(url, {headers:{'Accept':'application/json'}});
+  // —— 摘要获取 ——
+  async function fetchSummaryByTitle(t, minLen=120, maxLen=500) {
+    const r = await fetch(API_SUMMARY(t), {headers:{Accept:"application/json"}});
     if (!r.ok) throw new Error("summary 请求失败");
     const data = await r.json();
     if (!data?.extract || data.type === "disambiguation") throw new Error("不合格");
@@ -147,84 +192,40 @@
     return { title: data.title.trim(), snippet: ex.slice(0, maxLen) };
   }
 
-  async function fetchPopular(minLen=100, maxLen=500, topN=500, tries=20) {
-    const pool = await fetchTopArticles(3);
-    const cand = pool.slice(0, topN);
-    for (let i=0; i<tries; i++) {
-      const t = cand[Math.floor(Math.random()*cand.length)];
+  // —— 种子→条目（固定池） ——
+  async function fetchBySeed(seed, minLen=120, maxLen=500) {
+    const pool = await getFixedPool();                 // 固定池稳定存在
+    const base = fnv1a32(seed) % pool.length;          // 种子→索引
+    // 线性探测，跳过超短或不合格摘要
+    for (let k=0; k<Math.min(64, pool.length); k++) {
+      const t = pool[(base + k) % pool.length];
       try { return await fetchSummaryByTitle(t, minLen, maxLen); } catch {}
     }
-    throw new Error("热门池未命中");
+    // 实在不行用固定备份标题
+    const fb = FALLBACK_POOL[fnv1a32("fb:"+seed) % FALLBACK_POOL.length];
+    return await fetchSummaryByTitle(fb, minLen, maxLen);
   }
 
-  async function fetchRandom(minLen=100, maxLen=500, tries=10) {
-    for (let i=0; i<tries; i++) {
-      const r = await fetch(API_RANDOM, { headers: { "Accept": "application/json" }});
+  // —— 备选：真正随机（只作为极端兜底，不用于“默认开局”） ——
+  async function fetchRandom(minLen=120, maxLen=500, tries=10) {
+    for (let i=0;i<tries;i++){
+      const r = await fetch(API_RANDOM, {headers:{Accept:"application/json"}});
       if (!r.ok) continue;
       const data = await r.json();
       if (!data?.extract || data.type === "disambiguation") continue;
       let ex = data.extract.replace(/\u00A0/g," ").replace(/\s+/g," ").trim();
       if (ex.length >= minLen) return { title: data.title.trim(), snippet: ex.slice(0, maxLen) };
     }
-    throw new Error("未能获取合适的随机条目");
+    throw new Error("随机未命中");
   }
 
   function fullRevealed() {
     const a = Array.from(snippet), b = Array.from(masked);
-    for (let i=0; i<a.length; i++) if (!isPunct(a[i]) && a[i] !== "\n" && b[i] === "□") return false;
+    for (let i=0;i<a.length;i++) if (!isPunct(a[i]) && a[i] !== "\n" && b[i] === "□") return false;
     return true;
   }
 
-  // —— 房间码 / 种子 / 分享 —— 
-  function fnv1a32(str) {
-    let h = 0x811c9dc5 >>> 0;
-    for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
-    return h >>> 0;
-  }
-  function yestUTC() {
-    const now = new Date();
-    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
-  }
-  async function fetchTopYesterday() {
-    const d = yestUTC();
-    const y  = d.getUTCFullYear();
-    const mm = String(d.getUTCMonth()+1).padStart(2,"0");
-    const dd = String(d.getUTCDate()).padStart(2,"0");
-    const url = API_TOP(y, mm, dd);
-    const r = await fetch(url, {headers:{'Accept':'application/json'}});
-    if (!r.ok) throw new Error("top失败");
-    const data = await r.json();
-    const bad = new Set(["Main_Page","首页","维基百科:首页"]);
-    return (data.items?.[0]?.articles || [])
-      .map(a => a.article)
-      .filter(t =>
-        !bad.has(t) &&
-        !/^特殊:|^Wikipedia:|^维基百科:|^File:|^文件:|^Category:|^分类:/.test(t) &&
-        !/消歧义/.test(t)
-      );
-  }
-  async function fetchBySeed(seed, minLen=120, maxLen=500) {
-    const pool = await fetchTopYesterday();
-    if (!pool.length) throw new Error("热门为空");
-    const base = fnv1a32(seed) % pool.length;
-    for (let k=0; k<30; k++) {
-      const t = pool[(base + k) % pool.length];
-      try { return await fetchSummaryByTitle(t, minLen, maxLen); } catch {}
-    }
-    throw new Error("种子未命中合格条目");
-  }
-  function buildShareURL({title, seed}) {
-    const base = location.origin + location.pathname.replace(/index\.html$/,'');
-    if (seed)  return `${base}?seed=${encodeURIComponent(seed)}`;
-    if (title) return `${base}?title=${encodeURIComponent(title)}`;
-    return base;
-  }
-  function getParams() {
-    const p = new URLSearchParams(location.search);
-    return { title: p.get("title") || "", seed: p.get("seed") || "" };
-  }
-
-  // —— 开局 ——（支持 title / seed / 默认热门→随机）
+  // —— 开局（仅三种：seed 指定 / URL seed / 默认随机“先造种子→按种子取题”） ——
   async function startNew(options = {}) {
     setUIEnabled(false);
     elAns.textContent = "";
@@ -238,15 +239,21 @@
     try {
       let got, seedUsed = "";
 
-      if (options.title) {
-        got = await fetchSummaryByTitle(options.title, 120, 500);
-        seedUsed = options.seed || "";
-      } else if (options.seed) {
+      if (options.seed) {
+        // 指定房间码
         got = await fetchBySeed(options.seed, 120, 500);
         seedUsed = options.seed;
       } else {
-        got = await fetchPopular(120, 500, 500, 24).catch(()=>fetchRandom(120, 500, 12));
-        seedUsed = Math.random().toString(36).slice(2, 8); // 自动生成房间码
+        // 默认也走“种子驱动”，保证“显示的房间码 = 本局永久映射”
+        const base = Math.random().toString(36).slice(2, 8);
+        // 最多尝试 32 次，确保拿到合格摘要
+        let used = base, ok = null;
+        for (let i=0;i<32;i++){
+          const s = i === 0 ? base : `${base}-${i}`;
+          try { ok = await fetchBySeed(s, 120, 500); used = s; break; } catch {}
+        }
+        if (!ok) ok = await fetchRandom(120, 500, 12);
+        got = ok; seedUsed = used;
       }
 
       title   = got.title;
@@ -260,7 +267,7 @@
       currentSeed = seedUsed;
       elRoundSeed.textContent = "房间码：" + (currentSeed || "—");
 
-      const share = buildShareURL({title, seed: currentSeed});
+      const share = buildShareURL({seed: currentSeed});
       elShareUrl.textContent = share;
       elBtnShare.disabled = false;
       elBtnShare.onclick = async () => {
@@ -315,7 +322,7 @@
 
   function onHint() {
     const A = Array.from(snippet), B = Array.from(masked);
-    for (let i=0; i<A.length; i++) {
+    for (let i=0;i<A.length;i++) {
       if (!isPunct(A[i]) && A[i] !== "\n" && B[i] === "□") {
         const hintChar = A[i];
         if (!guessed.has(hintChar)) { guessed.add(hintChar); attempts += 1; updateStats(); }
@@ -347,20 +354,17 @@
     startNew({seed: s});
   });
 
-  // 首次自动：带 ?title 或 ?seed 则按其开局，否则默认
+  // 首次自动：若 URL 带 ?seed 则按其开局，否则默认生成种子
   (function bootstrap() {
     const p = new URLSearchParams(location.search);
-    const title = p.get("title") || "";
-    const seed  = p.get("seed")  || "";
-    if (title) startNew({title});
-    else if (seed) startNew({seed});
+    const seed = p.get("seed") || "";
+    if (seed) startNew({seed});
     else startNew();
   })();
 })();
 </script>
 </body>
 <div style="margin-top:40px;font-size:12px;color:#999;text-align:center">
-ver 2025-11-09  zh-top-views + seed/share 2
+ver 2025-11-09  fixed-pool(seed→page) permanent
 </div>
 </html>
-
