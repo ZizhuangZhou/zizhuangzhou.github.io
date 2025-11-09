@@ -185,6 +185,11 @@
     const base = location.origin + location.pathname.replace(/index\.html$/,'');
     return seed ? `${base}?seed=${encodeURIComponent(seed)}` : base;
   }
+  function updateMaskedTitle() {
+    const t = Array.from(title);
+    document.getElementById("masked-title").textContent =
+      t.map(ch => guessed.has(ch) ? ch : (isPunct(ch)?ch:"□")).join("");
+  }
 
   // —— 摘要获取 ——
   async function fetchSummaryByTitle(t, minLen=120, maxLen=500) {
@@ -271,7 +276,7 @@
       snippet = got.snippet;
       masked  = maskSnippet(snippet);
       showMasked();
-      document.getElementById("masked-title").textContent = maskTitle(title);
+      updateMaskedTitle();
       say("已开始。输入一个汉字进行猜测，或输入多个字直接猜标题。", true);
       setUIEnabled(true);
       elGuess.focus();
@@ -327,8 +332,7 @@
       showMasked(); say("未命中。");
     }
     updateStats();
-    document.getElementById("masked-title").textContent =
-      Array.from(title).map(ch => guessed.has(ch) ? ch : (isPunct(ch)?ch:"□")).join("");
+    updateMaskedTitle();
     elGuess.value = "";
 
     if (fullRevealed()) say("你已揭示全部内容。直接输入条目全名来获胜。", true);
@@ -339,9 +343,14 @@
     for (let i=0;i<A.length;i++) {
       if (!isPunct(A[i]) && A[i] !== "\n" && B[i] === "□") {
         const hintChar = A[i];
-        if (!guessed.has(hintChar)) { guessed.add(hintChar); attempts += 1; updateStats(); }
+        if (!guessed.has(hintChar)) { 
+          guessed.add(hintChar); attempts += 1;
+          updateStats();
+        }
         masked = reveal(snippet, masked, hintChar);
-        showMasked(); say("已给提示：" + hintChar, true);
+        showMasked();
+        updateMaskedTitle();  
+        say("已给提示：" + hintChar, true);
         if (fullRevealed()) say("你已揭示全部内容。直接输入条目全名来获胜。", true);
         return;
       }
@@ -382,5 +391,6 @@
 ver 2025-11-09  fixed-pool(seed→page) remove-title-space
 </div>
 </html>
+
 
 
