@@ -20,6 +20,9 @@
     font-size: 20px;
     line-height: 1.45;
     letter-spacing: 0.02em;
+    white-space: pre-wrap;
+    word-break: break-all;
+    overflow-wrap: anywhere;
   }
 </style>
 </head>
@@ -164,9 +167,6 @@
   function maskTitle(t){
     return Array.from(t).map(ch => isPunct(ch) ? ch : MASK).join("");
   }
-  function maskSnippet(s) {
-    return Array.from(s).map(ch => isPunct(ch) ? ch : (ch === "\n" ? "\n" : "□")).join("");
-  }
   function reveal(sn, cur, ch) {
     const a = Array.from(sn), b = Array.from(cur);
     for (let i=0;i<a.length;i++) if (a[i] === ch) b[i] = ch;
@@ -183,10 +183,8 @@
     elAttempts.textContent = `已猜次数：${attempts}`;
     elWrongs.textContent = wrongs.length ? wrongs.join("") : "";
   }
-  function maskTitle(t){
-    return Array.from(t).map(ch => isPunct(ch) ? ch : "□").join("");
-  }
-  function showMasked() { elMasked.textContent = masked; }
+  const ZWSP = "\u200B";
+  function showMasked() { elMasked.textContent = Array.from(masked).join(ZWSP); }
   function resetMsg() { elMsg.textContent = ""; }
   function say(t, ok=false) { elMsg.textContent = t; elMsg.className = ok ? "ok" : "msg"; }
   function fnv1a32(str) {
@@ -199,9 +197,8 @@
     return seed ? `${base}?seed=${encodeURIComponent(seed)}` : base;
   }
   function updateMaskedTitle() {
-    const t = Array.from(title);
-    document.getElementById("masked-title").textContent =
-      t.map(ch => guessed.has(ch) ? ch : (isPunct(ch)?ch:"□")).join("");
+    const t = Array.from(title).map(ch => guessed.has(ch) ? ch : (isPunct(ch)? ch : MASK));
+    document.getElementById("masked-title").textContent = t.join(ZWSP);
   }
 
   async function fetchSummaryByTitle(t, minLen=120, maxLen=500) {
@@ -398,14 +395,4 @@
 })();
 </script>
 </body>
-<div style="margin-top:40px;font-size:12px;color:#999;text-align:center">
-ver 2025-11-09  fixed-pool(seed→page) remove-title-space
-</div>
 </html>
-
-
-
-
-
-
-
