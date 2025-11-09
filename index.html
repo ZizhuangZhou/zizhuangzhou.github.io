@@ -261,6 +261,7 @@
       }
 
       title   = got.title;
+      title = got.title.replace(/^[\u200B\u200C\u200D\u202F\u00A0 ]+/, "");
       snippet = got.snippet;
       masked  = maskSnippet(snippet);
       showMasked();
@@ -372,7 +373,8 @@
 </script>
 </body>
 <div style="margin-top:40px;font-size:12px;color:#999;text-align:center">
-ver 2025-11-09  fixed-pool(seed→page) title
+ver 2025-11-09  fixed-pool(seed→page) remove-title-space
 </div>
 </html>
+
 
