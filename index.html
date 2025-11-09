@@ -56,10 +56,10 @@
 <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
 <script>
 (() => {
-  const API_RANDOM = "https://zh.wikipedia.org/api/rest_v1/page/random/summary";
-  const API_SUMMARY = (t) => `https://zh.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(t)}`;
-  const API_TOP = (y,m,d) => `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/zh.wikipedia/all-access/${y}/${m}/${d}`;
-  const HANS_HEADERS = { Accept: "application/json", "Accept-Language": "zh-Hans" };
+  const WORKER = "https://quiet-dust-e17b.zhouzizhuang.workers.dev";
+  const API_RANDOM = `${WORKER}/random`;
+  const API_SUMMARY = (t) => `${WORKER}/summary?title=${encodeURIComponent(t)}`;
+  const API_TOP = (y,m,d) => `${WORKER}/top?date=${y}/${m}/${d}`;
 
   // —— 固定候选池：若干固定日期，确保 “seed→条目” 永久稳定 ——
   const FIXED_DATES = [
@@ -85,7 +85,7 @@
   async function fetchTopByDate(y, m, d) {
     const mm = String(m).padStart(2,"0");
     const dd = String(d).padStart(2,"0");
-    const r = await fetch(API_TOP(y, mm, dd), { headers: HANS_HEADERS });
+    const r = await fetch(API_TOP(y, mm, dd));
     if (!r.ok) throw new Error("top失败");
     const data = await r.json();
     const bad = new Set(["Main_Page","首页","维基百科:首页"]);
@@ -194,7 +194,7 @@
   // —— 摘要获取 ——
   async function fetchSummaryByTitle(t, minLen=120, maxLen=500) {
   const url = `https://zh.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(t)}?redirect=true`;
-  const r = await fetch(url, { headers: HANS_HEADERS });
+  const r = await fetch(url);
   if (!r.ok) throw new Error("summary 请求失败");
   const data = await r.json();
   if (!data?.extract || data.type === "disambiguation") throw new Error("不合格");
@@ -224,7 +224,7 @@
   // —— 备选：真正随机（只作为极端兜底，不用于“默认开局”） ——
   async function fetchRandom(minLen=120, maxLen=500, tries=10) {
     for (let i=0;i<tries;i++){
-      const r = await fetch(API_RANDOM, { headers: HANS_HEADERS });
+      const r = await fetch(API_RANDOM);
       if (!r.ok) continue;
       const data = await r.json();
       if (!data?.extract || data.type === "disambiguation") continue;
@@ -391,6 +391,7 @@
 ver 2025-11-09  fixed-pool(seed→page) remove-title-space
 </div>
 </html>
+
 
 
 
