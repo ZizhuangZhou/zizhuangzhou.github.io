@@ -43,7 +43,9 @@
 
 <script>
 (() => {
-  const API = "https://zh.wikipedia.org/api/rest_v1/page/random/summary";
+  const API_RANDOM = "https://zh.wikipedia.org/api/rest_v1/page/random/summary";
+  const API_TOP = (y,m,d) =>
+    `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/zh.wikipedia/all-access/${y}/${m}/${d}`;
 
   let title = "";
   let snippet = "";
@@ -102,18 +104,67 @@
     elMsg.className = ok ? "ok" : "msg";
   }
 
-  async function fetchRandom(minLen=100, maxLen=500, tries=10) {
-    for (let i=0; i<tries; i++) {
-      const r = await fetch(API, { headers: { "Accept": "application/json" }});
+  async function fetchTopArticles(back=3) {
+    const now = new Date();                  // 用 UTC 避免跨区当天还没产出
+    for (let i=1; i<=back; i++) {
+      const dt = new Date(Date.UTC(
+        now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - i
+      ));
+      const y  = dt.getUTCFullYear();
+      const mm = String(dt.getUTCMonth()+1).padStart(2,"0");
+      const dd = String(dt.getUTCDate()).padStart(2,"0");
+      const url = API_TOP(y, mm, dd);
+      const r = await fetch(url, {headers:{'Accept':'application/json'}});
       if (!r.ok) continue;
       const data = await r.json();
-      // 排除消歧义，确保有简介
-      if (!data || !data.extract || data.type === "disambiguation") continue;
-      const t = (data.title || "").trim();
-      let ex = (data.extract || "").replace(/\u00A0/g, " ");
-      ex = ex.replace(/\s+/g, " ").trim();
+      if (!data?.items?.[0]?.articles) continue;
+      // 过滤首页、特殊页、消歧、列表等噪声
+      const bad = new Set(["Main_Page","首页","维基百科:首页"]);
+      const arts = data.items[0].articles
+        .map(a => a.article)
+        .filter(t =>
+          !bad.has(t) &&
+          !/^特殊:|^Wikipedia:|^维基百科:|^File:|^文件:|^Category:|^分类:/.test(t) &&
+          !/消歧义/.test(t)
+        );
+      if (arts.length) return arts;
+    }
+    throw new Error("没有拿到热门列表");
+  }
+
+  async function fetchSummaryByTitle(title, minLen=100, maxLen=500) {
+    const url = `https://zh.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
+    const r = await fetch(url, {headers:{'Accept':'application/json'}});
+    if (!r.ok) throw new Error("summary 请求失败");
+    const data = await r.json();
+    if (!data?.extract || data.type === "disambiguation") throw new Error("不合格");
+    let ex = data.extract.replace(/\u00A0/g," ").replace(/\s+/g," ").trim();
+    if (ex.length < minLen) throw new Error("过短");
+    return { title: data.title.trim(), snippet: ex.slice(0, maxLen) };
+  }
+
+  // “热门模式”：先取 topN（默认前500）里随机抽样多次
+  async function fetchPopular(minLen=100, maxLen=500, topN=500, tries=20) {
+    const pool = await fetchTopArticles(3);
+    const cand = pool.slice(0, topN);
+    for (let i=0; i<tries; i++) {
+      const t = cand[Math.floor(Math.random()*cand.length)];
+      try {
+        return await fetchSummaryByTitle(t, minLen, maxLen);
+      } catch { /* 换下一个 */ }
+    }
+    throw new Error("热门池未命中");
+  }
+
+  async function fetchRandom(minLen=100, maxLen=500, tries=10) {
+    for (let i=0; i<tries; i++) {
+      const r = await fetch(API_RANDOM, { headers: { "Accept": "application/json" }});
+      if (!r.ok) continue;
+      const data = await r.json();
+      if (!data?.extract || data.type === "disambiguation") continue;
+      let ex = data.extract.replace(/\u00A0/g," ").replace(/\s+/g," ").trim();
       if (ex.length >= minLen) {
-        return { title: t, snippet: ex.slice(0, maxLen) };
+        return { title: data.title.trim(), snippet: ex.slice(0, maxLen) };
       }
     }
     throw new Error("未能获取合适的随机条目");
@@ -136,20 +187,18 @@
     elMasked.textContent = "加载中…";
     elMsg.textContent = "";
     elGuess.value = "";
-    guessed = new Set();
-    wrongs = [];
-    attempts = 0;
-    updateStats();
+    guessed = new Set(); wrongs = []; attempts = 0; updateStats();
     try {
-      const got = await fetchRandom(100, 500, 12);
+      // 先热门，失败再随机
+      const got = await fetchPopular(120, 500, 500, 24).catch(()=>fetchRandom(120, 500, 12));
       title = got.title;
       snippet = got.snippet;
       masked = maskSnippet(snippet);
       showMasked();
-      say("已开始。输入一个汉字进行猜测，或输入多个字直接猜标题。", true);
+      say("已开始（热门池）。输入一个汉字进行猜测，或输入多个字直接猜标题。", true);
       setUIEnabled(true);
       elGuess.focus();
-    } catch (e) {
+    } catch(e) {
       say("拉取失败，稍后重试。");
       setUIEnabled(false);
     }
@@ -249,3 +298,4 @@
 </script>
 </body>
 </html>
+
