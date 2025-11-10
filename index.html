@@ -68,7 +68,7 @@
 </style>
 </head>
 <body>
-  <h1>维基简介猜字游戏</h1>
+  <h1>魔女协会用维基简介猜字游戏</h1>
   <p class="muted">规则：只保留标点，其它位置显示“⬜”。每次可猜一个汉字；输入多个字视为“猜标题”。重复字符不计数。可用提示或放弃。</p>
 
   <div class="row">
@@ -364,8 +364,12 @@
     }
 
     const ch = s;
-    if (!isHan(ch)) { say("请输入一个汉字或直接输入标题。"); return; }
-    if (guessed.has(ch)) { say("该字已猜过，不计入次数。"); elGuess.value = ""; return; }
+    if (isPunct(ch) || ch === "\n") {
+      say("这个字符无需猜。");
+      elGuess.value = "";
+      return;
+    }
+    if (guessed.has(ch)) { say("该字符已猜过，不计入次数。"); elGuess.value = ""; return; }
 
     guessed.add(ch);
     attempts += 1;
@@ -432,6 +436,7 @@
 </script>
 </body>
 </html>
+
 
 
 
