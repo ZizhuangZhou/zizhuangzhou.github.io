@@ -277,7 +277,7 @@
     el.innerHTML = html;
   }
 
-  async function fetchSummaryByTitle(t, minLen=120, maxLen=500) {
+  async function fetchSummaryByTitle(t, minLen=10, maxLen=1000) {
     const r = await fetch(API_SUMMARY(t));
     if (!r.ok) throw new Error("summary 请求失败");
     const data = await r.json();
@@ -288,7 +288,7 @@
     return { title: clean.trim(), snippet: ex.slice(0, maxLen) };
   }
 
-  async function getFixedOrFallbackBySeed(seed, minLen=120, maxLen=500) {
+  async function getFixedOrFallbackBySeed(seed, minLen=10, maxLen=1000) {
     const pool = await getFixedPool();
     const base = fnv1a32(seed) % pool.length;
     for (let k=0; k<Math.min(64, pool.length); k++) {
@@ -299,7 +299,7 @@
     return await fetchSummaryByTitle(fb, minLen, maxLen);
   }
 
-  async function fetchRandom(minLen=120, maxLen=500, tries=10) {
+  async function fetchRandom(minLen=10, maxLen=1000, tries=10) {
     for (let i=0;i<tries;i++){
       const r = await fetch(API_RANDOM);
       if (!r.ok) continue;
@@ -331,16 +331,16 @@
       let got, seedUsed = "";
 
       if (options.seed) {
-        got = await getFixedOrFallbackBySeed(options.seed, 120, 500);
+        got = await getFixedOrFallbackBySeed(options.seed, 10, 1000);
         seedUsed = options.seed;
       } else {
         const base = Math.random().toString(36).slice(2, 8);
         let used = base, ok = null;
         for (let i=0;i<32;i++){
           const s = i === 0 ? base : `${base}-${i}`;
-          try { ok = await getFixedOrFallbackBySeed(s, 120, 500); used = s; break; } catch {}
+          try { ok = await getFixedOrFallbackBySeed(s, 10, 1000); used = s; break; } catch {}
         }
-        if (!ok) ok = await fetchRandom(120, 500, 12);
+        if (!ok) ok = await fetchRandom(10, 1000, 12);
         got = ok; seedUsed = used;
       }
 
@@ -381,7 +381,7 @@
     elShareUrl.textContent = ""; elBtnShare.disabled = true;
 
     try {
-      const got = await fetchSummaryByTitle(t, 120, 500);
+      const got = await fetchSummaryByTitle(t, 10, 1000);
       title   = got.title.replace(/<[^>]*>/g, "");
       snippet = got.snippet;
       masked  = maskSnippet(snippet);
@@ -541,4 +541,5 @@
 </script>
 </body>
 </html>
+
 
