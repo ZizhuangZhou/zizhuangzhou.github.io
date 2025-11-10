@@ -191,13 +191,17 @@
   const elShareUrl = document.getElementById("share-url");
 
   function isPunct(ch) { return /\p{P}/u.test(ch); }
-  function isHan(ch) { return /\p{Script=Han}/u.test(ch); }
+  function isSpace(ch){ return /\p{Zs}/u.test(ch) || ch === ' ' || ch === '\t' || ch === '\r'; }
   const MASK = "\u2B1C"; // ⬜
-  function maskSnippet(s) {
-    return Array.from(s).map(ch => isPunct(ch) ? ch : (ch === "\n" ? "\n" : MASK)).join("");
+  function maskSnippet(s){
+    return Array.from(s).map(ch =>
+      ch === "\n" || isPunct(ch) || isSpace(ch) ? ch : MASK
+    ).join("");
   }
   function maskTitle(t){
-    return Array.from(t).map(ch => isPunct(ch) ? ch : MASK).join("");
+    return Array.from(t).map(ch =>
+      isPunct(ch) || isSpace(ch) ? ch : MASK
+    ).join("");
   }
   function reveal(sn, cur, ch) {
     const a = Array.from(sn), b = Array.from(cur);
@@ -436,6 +440,7 @@
 </script>
 </body>
 </html>
+
 
 
 
