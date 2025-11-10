@@ -33,20 +33,10 @@
     margin: 6px 0 8px;
     background: transparent;
   }
-  #btn-hint{
-    display:none !important;
-  }
+  #btn-hint{ display:none !important; }
   .cell{
-    display:inline-block;
-    width:1em;
-    height:1.25em;
-    line-height:1.25em;
-    text-align:center;
-    vertical-align:baseline;
-    box-sizing:content-box;
-    overflow:hidden;
-    font-variant-numeric:tabular-nums;
-    font-variant-east-asian:full-width;
+    display:inline-block;width:1em;height:1.25em;line-height:1.25em;text-align:center;vertical-align:baseline;box-sizing:content-box;overflow:hidden;
+    font-variant-numeric:tabular-nums;font-variant-east-asian:full-width;
   }
   .br{ display:block; height:0; }
   .stat { font-size: 14px; color: #555; }
@@ -58,15 +48,9 @@
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   .mono-cjk {
     font-family: ui-monospace, Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
-    font-size: 20px;
-    line-height: 1.45;
-    letter-spacing: 0.02em;
-    white-space: pre-wrap;
-    word-break: break-all;
-    overflow-wrap: anywhere;
-    text-transform: full-width;
-    font-variant-east-asian: full-width;
-    font-variant-numeric: tabular-nums;
+    font-size: 20px; line-height: 1.45; letter-spacing: 0.02em;
+    white-space: pre-wrap; word-break: break-all; overflow-wrap: anywhere;
+    text-transform: full-width; font-variant-east-asian: full-width; font-variant-numeric: tabular-nums;
   }
 </style>
 </head>
@@ -114,9 +98,9 @@
 <script>
 (() => {
   const WORKER = "https://api.wikiguessing.space";
-  const API_RANDOM = `${WORKER}/random`;
+  const API_RANDOM  = `${WORKER}/random`;
   const API_SUMMARY = (t) => `${WORKER}/summary?title=${encodeURIComponent(t)}`;
-  const API_TOP = (y,m,d) => `${WORKER}/top?date=${y}/${m}/${d}`;
+  const API_TOP     = (y,m,d) => `${WORKER}/top?date=${y}/${m}/${d}`;
 
   const FIXED_DATES = [
     {y: 2024, m: 1, d: 1},
@@ -134,6 +118,51 @@
     "第二次世界大战","冷战","罗马帝国","秦朝","汉朝","唐朝","宋朝","明朝","清朝",
     "计算机科学","互联网","操作系统","Linux","Python","C语言","Java","算法"
   ];
+
+  const ENC_KEY_RAW = "wg-mini-enc-key!";
+  async function importAesKey(){
+    return await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(ENC_KEY_RAW),
+      "AES-GCM",
+      false,
+      ["encrypt","decrypt"]
+    );
+  }
+  function b64url(buf){
+    const b = btoa(String.fromCharCode(...new Uint8Array(buf)));
+    return b.replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  }
+  function b64urlToBuf(s){
+    s = s.replace(/-/g,'+').replace(/_/g,'/');
+    s += "===".slice((s.length+3)%4);
+    const bin = atob(s);
+    const u8 = new Uint8Array(bin.length);
+    for (let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i);
+    return u8.buffer;
+  }
+  async function encTitleToToken(title){
+    const key = await importAesKey();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = await crypto.subtle.encrypt(
+      {name:"AES-GCM", iv},
+      key,
+      new TextEncoder().encode(title)
+    );
+    const out = new Uint8Array(iv.length + ct.byteLength);
+    out.set(iv,0);
+    out.set(new Uint8Array(ct), iv.length);
+    return b64url(out.buffer);
+  }
+  async function decTokenToTitle(token){
+    const key = await importAesKey();
+    const buf = b64urlToBuf(token);
+    const u8 = new Uint8Array(buf);
+    const iv = u8.slice(0,12);
+    const ct = u8.slice(12);
+    const pt = await crypto.subtle.decrypt({name:"AES-GCM", iv}, key, ct);
+    return new TextDecoder().decode(pt);
+  }
 
   let FIXED_POOL = null;
 
@@ -198,41 +227,12 @@
   const elRoundSeed = document.getElementById("round-seed");
   const elShareUrl = document.getElementById("share-url");
 
-  function b64urlEncode(u8){
-    let s = btoa(String.fromCharCode(...u8));
-    return s.replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-  }
-  function b64urlDecode(str){
-    str = str.replace(/-/g,'+').replace(/_/g,'/');
-    const pad = str.length % 4 ? 4 - (str.length % 4) : 0;
-    str += '='.repeat(pad);
-    const bin = atob(str);
-    const u8 = new Uint8Array(bin.length);
-    for (let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i);
-    return u8;
-  }
-  function utf8Encode(s){ return new TextEncoder().encode(s); }
-  function utf8Decode(u8){ return new TextDecoder().decode(u8); }
-  async function sha256Hex(s){
-    const buf = await crypto.subtle.digest('SHA-256', utf8Encode(s));
-    const a = Array.from(new Uint8Array(buf));
-    return a.map(b=>b.toString(16).padStart(2,'0')).join('');
-  }
-  function pack(obj){ return b64urlEncode(utf8Encode(JSON.stringify(obj))); }
-  function unpack(b64u){ return JSON.parse(utf8Decode(b64urlDecode(b64u))); }
-  // ====================================================
-
   function isPunct(ch) { return /\p{P}/u.test(ch); }
   function isSpace(ch){ return /\p{Zs}/u.test(ch) || ch === ' ' || ch === '\t' || ch === '\r'; }
   const MASK = "\u2B1C"; // ⬜
   function maskSnippet(s){
     return Array.from(s).map(ch =>
       ch === "\n" || isPunct(ch) || isSpace(ch) ? ch : MASK
-    ).join("");
-  }
-  function maskTitle(t){
-    return Array.from(t).map(ch =>
-      isPunct(ch) || isSpace(ch) ? ch : MASK
     ).join("");
   }
   function reveal(sn, cur, ch) {
@@ -251,9 +251,7 @@
     elAttempts.textContent = `已猜次数：${attempts}`;
     elWrongs.textContent = wrongs.length ? wrongs.join("") : "";
   }
-  function showMasked(){
-    renderCells(masked, elMasked);
-  }
+  function showMasked(){ renderCells(masked, elMasked); }
   function resetMsg() { elMsg.textContent = ""; }
   function say(t, ok=false) { elMsg.textContent = t; elMsg.className = ok ? "ok" : "msg"; }
   function fnv1a32(str) {
@@ -266,21 +264,16 @@
     return seed ? `${base}?seed=${encodeURIComponent(seed)}` : base;
   }
   function updateMaskedTitle(){
-    const arr = Array.from(title).map(ch =>
-      guessed.has(ch) ? ch : (isPunct(ch) ? ch : MASK)
+    const arr = Array.from(title || "").map(ch =>
+      guessed.has(ch) ? ch : (isPunct(ch) || isSpace(ch) ? ch : MASK)
     );
     renderCells(arr.join(""), document.getElementById("masked-title"));
   }
-
   function escapeHTML(s){
     return s.replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
   }
-  
   function renderCells(str, el){
-    const html = Array.from(str).map(ch => {
-      if (ch === "\n") return '<span class="br"></span>';
-      return `<span class="cell">${escapeHTML(ch)}</span>`;
-    }).join("");
+    const html = Array.from(str).map(ch => ch === "\n" ? '<span class="br"></span>' : `<span class="cell">${escapeHTML(ch)}</span>`).join("");
     el.innerHTML = html;
   }
 
@@ -289,16 +282,14 @@
     if (!r.ok) throw new Error("summary 请求失败");
     const data = await r.json();
     if (!data?.extract || data.type === "disambiguation") throw new Error("不合格");
-  
     const disp = (data.titles && (data.titles.display || data.title)) || data.title;
-    const clean = String(disp).replace(/<[^>]*>/g, "");  // 去 span
-  
+    const clean = String(disp).replace(/<[^>]*>/g, "");
     let ex = String(data.extract).replace(/\u00A0/g, " ").replace(/\s+/g, " ").trim();
     if (ex.length < minLen) throw new Error("过短");
     return { title: clean.trim(), snippet: ex.slice(0, maxLen) };
   }
 
-  async function fetchBySeed(seed, minLen=120, maxLen=500) {
+  async function getFixedOrFallbackBySeed(seed, minLen=120, maxLen=500) {
     const pool = await getFixedPool();
     const base = fnv1a32(seed) % pool.length;
     for (let k=0; k<Math.min(64, pool.length); k++) {
@@ -341,21 +332,20 @@
       let got, seedUsed = "";
 
       if (options.seed) {
-        got = await fetchBySeed(options.seed, 120, 500);
+        got = await getFixedOrFallbackBySeed(options.seed, 120, 500);
         seedUsed = options.seed;
       } else {
         const base = Math.random().toString(36).slice(2, 8);
         let used = base, ok = null;
         for (let i=0;i<32;i++){
           const s = i === 0 ? base : `${base}-${i}`;
-          try { ok = await fetchBySeed(s, 120, 500); used = s; break; } catch {}
+          try { ok = await getFixedOrFallbackBySeed(s, 120, 500); used = s; break; } catch {}
         }
         if (!ok) ok = await fetchRandom(120, 500, 12);
         got = ok; seedUsed = used;
       }
 
-      title   = got.title;
-      title = title.replace(/<[^>]*>/g, "");
+      title   = got.title.replace(/<[^>]*>/g, "");
       snippet = got.snippet;
       masked  = maskSnippet(snippet);
       showMasked();
@@ -381,15 +371,6 @@
     }
   }
 
-  async function buildChallengeFromTitle(theTitle, theSnippet){
-    const salt = Math.random().toString(36).slice(2, 10);
-    const norm = normalizeTitle(theTitle);
-    const hash = await sha256Hex(salt + norm);
-    const payload = { v:1, salt, hash, snippet: theSnippet };
-    const base = location.origin + location.pathname.replace(/index\.html$/,'');
-    return base + "?c=" + encodeURIComponent(pack(payload));
-  }
-
   async function startWithTitle(t) {
     setUIEnabled(false);
     elAns.textContent = "";
@@ -399,7 +380,7 @@
     elGuess.value = "";
     guessed = new Set(); wrongs = []; attempts = 0; updateStats();
     elShareUrl.textContent = ""; elBtnShare.disabled = true;
-  
+
     try {
       const got = await fetchSummaryByTitle(t, 120, 500);
       title   = got.title.replace(/<[^>]*>/g, "");
@@ -410,12 +391,13 @@
       say("已开始。输入一个汉字进行猜测，或输入多个字直接猜标题。", true);
       setUIEnabled(true);
       elGuess.focus();
-  
-      currentSeed = ""; // 手动标题局，不使用种子
+
+      currentSeed = "";
       elRoundSeed.textContent = "房间码：—";
-  
-      // 分享为挑战链接，不含明文标题
-      const share = await buildChallengeFromTitle(title, snippet);
+
+      const token = await encTitleToToken(title);
+      const base  = location.origin + location.pathname.replace(/index\.html$/,'');
+      const share = `${base}?x=${token}`;
       elShareUrl.textContent = share;
       elBtnShare.disabled = false;
       elBtnShare.onclick = async () => {
@@ -428,7 +410,7 @@
     }
   }
 
-  async function startFromChallenge(cstr){
+  async function startFromEncryptedToken(token){
     setUIEnabled(false);
     elAns.textContent = "";
     elSnip.textContent = "";
@@ -439,38 +421,33 @@
     elShareUrl.textContent = ""; elBtnShare.disabled = true;
 
     try{
-      const payload = unpack(cstr);
-      if (!payload || payload.v!==1 || !payload.snippet || !payload.salt || !payload.hash)
-        throw new Error("坏的挑战数据");
-
-      title = "";
-      snippet = String(payload.snippet);
+      const t = await decTokenToTitle(token);
+      const got = await fetchSummaryByTitle(t);
+      title   = got.title.replace(/<[^>]*>/g, "");
+      snippet = got.snippet;
       masked  = maskSnippet(snippet);
       showMasked();
       updateMaskedTitle();
-
-      window.__challengeVerify = { salt: String(payload.salt), hash: String(payload.hash) };
-
-      say("挑战模式。输入一个汉字来揭示；输入多个字猜标题。", true);
+      say("已开始。输入一个汉字进行猜测，或输入多个字直接猜标题。", true);
       setUIEnabled(true);
       elGuess.focus();
 
-      const share = location.origin + location.pathname.replace(/index\.html$/,'') + "?c=" + encodeURIComponent(cstr);
+      currentSeed = "";
+      elRoundSeed.textContent = "房间码：—";
+
+      const base  = location.origin + location.pathname.replace(/index\.html$/,'');
+      const share = `${base}?x=${encodeURIComponent(token)}`;
       elShareUrl.textContent = share;
       elBtnShare.disabled = false;
       elBtnShare.onclick = async () => {
         try { await navigator.clipboard.writeText(share); say("已复制本局链接", true); }
         catch { say("复制失败，请手动复制上方链接"); }
       };
-
-      currentSeed = "";
-      elRoundSeed.textContent = "房间码：挑战";
     }catch(e){
-      say("挑战链接无效。", false);
+      say("分享链接无效或解密失败。", false);
       setUIEnabled(false);
     }
   }
-  // =====================================================
 
   function onGuess() {
     resetMsg();
@@ -479,45 +456,19 @@
 
     if (Array.from(s).length > 1) {
       attempts += 1; updateStats();
-
       if (title && normalizeTitle(s) === normalizeTitle(title)) {
         say("命中标题。胜利。", true);
         elAns.textContent = `答案：${title}`;
         elSnip.textContent = `原文片段：${snippet}`;
         setUIEnabled(false);
-        elGuess.value = "";
-        return;
+      } else {
+        say("标题不正确。");
       }
-
-      if (!title && window.__challengeVerify){
-        const norm = normalizeTitle(s);
-        sha256Hex(window.__challengeVerify.salt + norm)
-          .then(h=>{
-            if (h === window.__challengeVerify.hash) {
-              say("命中标题。胜利。", true);
-              elAns.textContent = `答案：${s}`;
-              elSnip.textContent = `原文片段：${snippet}`;
-              setUIEnabled(false);
-            } else {
-              say("标题不正确。");
-            }
-          })
-          .catch(()=>say("校验失败"));
-        elGuess.value = "";
-        return;
-      }
-
-      say("标题不正确。");
-      elGuess.value = ""; 
-      return;
+      elGuess.value = ""; return;
     }
 
     const ch = s;
-    if (isPunct(ch) || ch === "\n") {
-      say("这个字符无需猜。");
-      elGuess.value = "";
-      return;
-    }
+    if (isPunct(ch) || ch === "\n") { say("这个字符无需猜。"); elGuess.value = ""; return; }
     if (guessed.has(ch)) { say("该字符已猜过，不计入次数。"); elGuess.value = ""; return; }
 
     guessed.add(ch);
@@ -533,7 +484,6 @@
     updateStats();
     updateMaskedTitle();
     elGuess.value = "";
-
     if (fullRevealed()) say("你已揭示全部内容。直接输入条目全名来获胜。", true);
   }
 
@@ -542,10 +492,7 @@
     for (let i=0;i<A.length;i++) {
       if (!isPunct(A[i]) && A[i] !== "\n" && B[i] === MASK) {
         const hintChar = A[i];
-        if (!guessed.has(hintChar)) { 
-          guessed.add(hintChar); attempts += 1;
-          updateStats();
-        }
+        if (!guessed.has(hintChar)) { guessed.add(hintChar); attempts += 1; updateStats(); }
         masked = reveal(snippet, masked, hintChar);
         showMasked();
         updateMaskedTitle();  
@@ -558,42 +505,38 @@
   }
 
   function onGiveUp() {
-    elAns.textContent = `放弃。本次答案：${title || "（挑战模式不展示）"}`;
+    elAns.textContent = `放弃。本次答案：${title}`;
     elSnip.textContent = `原文片段：${snippet}`;
     setUIEnabled(false);
   }
 
-  elBtnNew.addEventListener("click", () => startNew());
-  elBtnGuess.addEventListener("click", onGuess);
-  elBtnHint.addEventListener("click", onHint);
-  elBtnGiveUp.addEventListener("click", onGiveUp);
+  document.getElementById("btn-new").addEventListener("click", () => startNew());
+  document.getElementById("btn-guess").addEventListener("click", onGuess);
+  document.getElementById("btn-hint").addEventListener("click", onHint);
+  document.getElementById("btn-giveup").addEventListener("click", onGiveUp);
   elGuess.addEventListener("keydown", (e) => { if (e.key === "Enter") onGuess(); });
-
-  elBtnSeed.addEventListener("click", () => {
-    const s = elSeed.value.trim();
+  document.getElementById("btn-seed").addEventListener("click", () => {
+    const s = document.getElementById("seed").value.trim();
     if (!s) { say("请输入房间码/种子后再开始"); return; }
     startNew({seed: s});
   });
-
   const elTitle = document.getElementById("title");
-  const elBtnTitle = document.getElementById("btn-title");
-  elBtnTitle.addEventListener("click", () => {
+  document.getElementById("btn-title").addEventListener("click", () => {
     const t = elTitle.value.trim();
     if (!t) { say("请输入条目标题后再开始"); return; }
     startWithTitle(t);
   });
-  elTitle.addEventListener("keydown", (e) => { if (e.key === "Enter") elBtnTitle.click(); });
+  elTitle.addEventListener("keydown", (e) => { if (e.key === "Enter") document.getElementById("btn-title").click(); });
 
   (async function bootstrap() {
     const p = new URLSearchParams(location.search);
-    const c = p.get("c") || "";
+    const x = p.get("x") || "";
     const t = p.get("title") || "";
     const seed = p.get("seed") || "";
-
-    if (c) await startFromChallenge(c);
-    else if (t) startWithTitle(t);
-    else if (seed) startNew({seed});
-    else startNew();
+    if (x) await startFromEncryptedToken(x);
+    else if (t) await startWithTitle(t);
+    else if (seed) await startNew({seed});
+    else await startNew();
   })();
 })();
 </script>
