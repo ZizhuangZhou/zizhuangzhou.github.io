@@ -285,7 +285,6 @@
     const disp = (data.titles && (data.titles.display || data.title)) || data.title;
     const clean = String(disp).replace(/<[^>]*>/g, "");
     let ex = String(data.extract).replace(/\u00A0/g, " ").replace(/\s+/g, " ").trim();
-    if (ex.length < minLen) throw new Error("过短");
     return { title: clean.trim(), snippet: ex.slice(0, maxLen) };
   }
 
@@ -542,3 +541,4 @@
 </script>
 </body>
 </html>
+
