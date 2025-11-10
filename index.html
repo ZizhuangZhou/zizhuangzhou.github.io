@@ -7,24 +7,52 @@
 <style>
   body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif; margin: 20px; line-height: 1.6; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
-  #masked,
-  #masked-title {
-    white-space: pre-wrap;
+    /* 正文：继续用“框+格子” */
+  #masked{
+    white-space: normal;
     font-family:
-      "Noto Sans Mono CJK SC",
-      "Noto Sans CJK SC",
-      "Microsoft YaHei UI",
-      "PingFang SC",
-      "SimSun",
-      monospace;
+      "Noto Sans Mono CJK SC","Noto Sans CJK SC",
+      "Microsoft YaHei UI","PingFang SC","SimSun",monospace;
     font-size: 20px;
-    line-height: 1.3;
-    letter-spacing: 0;
+    line-height: 1.25;
     padding: 12px;
     border: 1px solid #ddd;
     border-radius: 8px;
     min-height: 6em;
   }
+  
+  /* 标题：无边框、无内边距、透明背景，只占自身高度 */
+  #masked-title{
+    white-space: normal;
+    font-family:
+      "Noto Sans Mono CJK SC","Noto Sans CJK SC",
+      "Microsoft YaHei UI","PingFang SC","SimSun",monospace;
+    font-size: 20px;
+    line-height: 1.25;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    min-height: 0;
+    margin: 6px 0 8px; /* 你要的上下间距 */
+    background: transparent;
+  }
+  
+  /* 单字格子（正文与标题共用，标题不会有外框） */
+  .cell{
+    display:inline-block;
+    width:1em;
+    height:1.25em;
+    line-height:1.25em;
+    text-align:center;
+    vertical-align:baseline;
+    box-sizing:content-box;
+    overflow:hidden;
+    font-variant-numeric:tabular-nums;
+    font-variant-east-asian:full-width;
+  }
+  
+  /* 换行占位 */
+  .br{ display:block; height:0; }
   .stat { font-size: 14px; color: #555; }
   button { padding: 8px 12px; }
   input[type="text"] { padding: 8px; width: min(560px, 90vw); }
@@ -203,8 +231,9 @@
     elAttempts.textContent = `已猜次数：${attempts}`;
     elWrongs.textContent = wrongs.length ? wrongs.join("") : "";
   }
-  const ZWSP = "\u200B";
-  function showMasked() { elMasked.textContent = Array.from(masked).join(ZWSP); }
+  function showMasked(){
+    renderCells(masked, elMasked);
+  }
   function resetMsg() { elMsg.textContent = ""; }
   function say(t, ok=false) { elMsg.textContent = t; elMsg.className = ok ? "ok" : "msg"; }
   function fnv1a32(str) {
@@ -216,9 +245,24 @@
     const base = location.origin + location.pathname.replace(/index\.html$/,'');
     return seed ? `${base}?seed=${encodeURIComponent(seed)}` : base;
   }
-  function updateMaskedTitle() {
-    const t = Array.from(title).map(ch => guessed.has(ch) ? ch : (isPunct(ch)? ch : MASK));
-    document.getElementById("masked-title").textContent = t.join(ZWSP);
+  function updateMaskedTitle(){
+    const arr = Array.from(title).map(ch =>
+      guessed.has(ch) ? ch : (isPunct(ch) ? ch : MASK)
+    );
+    renderCells(arr.join(""), document.getElementById("masked-title"));
+  }
+
+  function escapeHTML(s){
+    return s.replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+  }
+  
+  function renderCells(str, el){
+    // 将每个字符包成一个 .cell；\n 渲染为 .br
+    const html = Array.from(str).map(ch => {
+      if (ch === "\n") return '<span class="br"></span>';
+      return `<span class="cell">${escapeHTML(ch)}</span>`;
+    }).join("");
+    el.innerHTML = html;
   }
 
   async function fetchSummaryByTitle(t, minLen=120, maxLen=500) {
@@ -416,6 +460,7 @@
 </script>
 </body>
 </html>
+
 
 
 
