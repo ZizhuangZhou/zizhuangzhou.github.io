@@ -98,6 +98,11 @@
     <span id="share-url" class="muted" style="margin-left:12px"></span>
   </div>
 
+  <div class="row">
+    <input id="title" type="text" placeholder="输入准确条目标题（维基）…" />
+    <button id="btn-title">用标题开局</button>
+  </div>
+
   <div class="stat">
     <span id="stat-attempts">已猜次数：0</span>
     <span> | 错误：</span><span id="stat-wrongs"></span>
@@ -352,6 +357,44 @@
     }
   }
 
+  async function startWithTitle(t) {
+    setUIEnabled(false);
+    elAns.textContent = "";
+    elSnip.textContent = "";
+    elMasked.textContent = "加载中…";
+    elMsg.textContent = "";
+    elGuess.value = "";
+    guessed = new Set(); wrongs = []; attempts = 0; updateStats();
+    elShareUrl.textContent = ""; elBtnShare.disabled = true;
+  
+    try {
+      const got = await fetchSummaryByTitle(t, 120, 500);
+      title   = got.title.replace(/<[^>]*>/g, "");
+      snippet = got.snippet;
+      masked  = maskSnippet(snippet);
+      showMasked();
+      updateMaskedTitle();
+      say("已开始。输入一个汉字进行猜测，或输入多个字直接猜标题。", true);
+      setUIEnabled(true);
+      elGuess.focus();
+  
+      currentSeed = ""; // 手动标题局，不使用种子
+      elRoundSeed.textContent = "房间码：—";
+  
+      const share = (location.origin + location.pathname.replace(/index\.html$/,''))
+        + "?title=" + encodeURIComponent(title);
+      elShareUrl.textContent = share;
+      elBtnShare.disabled = false;
+      elBtnShare.onclick = async () => {
+        try { await navigator.clipboard.writeText(share); say("已复制本局链接", true); }
+        catch { say("复制失败，请手动复制上方链接"); }
+      };
+    } catch (e) {
+      say("未找到该条目或简介不合格。请换个标题试试。");
+      setUIEnabled(false);
+    }
+  }
+
   function onGuess() {
     resetMsg();
     const s = elGuess.value.trim();
@@ -433,16 +476,28 @@
     startNew({seed: s});
   });
 
+  const elTitle = document.getElementById("title");
+  const elBtnTitle = document.getElementById("btn-title");
+  elBtnTitle.addEventListener("click", () => {
+    const t = elTitle.value.trim();
+    if (!t) { say("请输入条目标题后再开始"); return; }
+    startWithTitle(t);
+  });
+  elTitle.addEventListener("keydown", (e) => { if (e.key === "Enter") elBtnTitle.click(); });
+
   (function bootstrap() {
     const p = new URLSearchParams(location.search);
+    const t = p.get("title") || "";
     const seed = p.get("seed") || "";
-    if (seed) startNew({seed});
+    if (t) startWithTitle(t);
+    else if (seed) startNew({seed});
     else startNew();
   })();
 })();
 </script>
 </body>
 </html>
+
 
 
 
