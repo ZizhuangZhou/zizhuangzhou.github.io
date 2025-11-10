@@ -7,7 +7,6 @@
 <style>
   body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif; margin: 20px; line-height: 1.6; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
-    /* 正文：继续用“框+格子” */
   #masked{
     white-space: normal;
     font-family:
@@ -20,8 +19,6 @@
     border-radius: 8px;
     min-height: 6em;
   }
-  
-  /* 标题：无边框、无内边距、透明背景，只占自身高度 */
   #masked-title{
     white-space: normal;
     font-family:
@@ -33,11 +30,9 @@
     border: 0;
     border-radius: 0;
     min-height: 0;
-    margin: 6px 0 8px; /* 你要的上下间距 */
+    margin: 6px 0 8px;
     background: transparent;
   }
-  
-  /* 单字格子（正文与标题共用，标题不会有外框） */
   .cell{
     display:inline-block;
     width:1em;
@@ -50,8 +45,6 @@
     font-variant-numeric:tabular-nums;
     font-variant-east-asian:full-width;
   }
-  
-  /* 换行占位 */
   .br{ display:block; height:0; }
   .stat { font-size: 14px; color: #555; }
   button { padding: 8px 12px; }
@@ -92,7 +85,6 @@
     <button id="btn-guess" disabled>提交</button>
   </div>
 
-  <!-- 房间码/分享 -->
   <div class="row">
     <input id="seed" type="text" placeholder="输入房间码/种子，例：abc123" />
     <button id="btn-seed">用种子开局</button>
@@ -118,7 +110,6 @@
   const API_SUMMARY = (t) => `${WORKER}/summary?title=${encodeURIComponent(t)}`;
   const API_TOP = (y,m,d) => `${WORKER}/top?date=${y}/${m}/${d}`;
 
-  // —— 固定候选池：若干固定日期，确保 “seed→条目” 永久稳定 ——
   const FIXED_DATES = [
     {y: 2024, m: 1, d: 1},
     {y: 2024, m: 7, d: 1},
@@ -127,7 +118,6 @@
   ];
   const TOPN_FIXED = 1000;
   const FIXED_POOL_KEY = "wiki_guess_fixed_pool_v1";
-  // 兜底硬编码小池（接口失败仍可工作）
   const FALLBACK_POOL = [
     "中国","美国","日本","俄罗斯","北京","上海","台北","香港","广州","深圳",
     "周杰伦","成龙","张学友","刘德华","林俊杰",
@@ -158,7 +148,6 @@
 
   async function getFixedPool() {
     if (FIXED_POOL) return FIXED_POOL;
-    // 本地缓存命中直接用（保证稳定）
     try {
       const cached = JSON.parse(localStorage.getItem(FIXED_POOL_KEY) || "null");
       if (Array.isArray(cached) && cached.length) {
@@ -166,19 +155,16 @@
         return FIXED_POOL;
       }
     } catch {}
-    // 拉取并合并去重
     const sets = [];
     for (const d of FIXED_DATES) {
       try { sets.push(await fetchTopByDate(d.y, d.m, d.d)); } catch {}
     }
     const merged = Array.from(new Set(sets.flat()));
     FIXED_POOL = merged.length ? merged : FALLBACK_POOL.slice();
-    // 写入缓存
     try { localStorage.setItem(FIXED_POOL_KEY, JSON.stringify(FIXED_POOL)); } catch {}
     return FIXED_POOL;
   }
 
-  // —— 游戏状态 ——
   let title = "";
   let snippet = "";
   let masked = "";
@@ -187,7 +173,6 @@
   let attempts = 0;
   let currentSeed = "";
 
-  // —— DOM 引用 ——
   const elMasked = document.getElementById("masked");
   const elGuess  = document.getElementById("guess");
   const elBtnGuess = document.getElementById("btn-guess");
@@ -205,7 +190,6 @@
   const elRoundSeed = document.getElementById("round-seed");
   const elShareUrl = document.getElementById("share-url");
 
-  // —— 工具函数 ——
   function isPunct(ch) { return /\p{P}/u.test(ch); }
   function isHan(ch) { return /\p{Script=Han}/u.test(ch); }
   const MASK = "\u2B1C"; // ⬜
@@ -257,7 +241,6 @@
   }
   
   function renderCells(str, el){
-    // 将每个字符包成一个 .cell；\n 渲染为 .br
     const html = Array.from(str).map(ch => {
       if (ch === "\n") return '<span class="br"></span>';
       return `<span class="cell">${escapeHTML(ch)}</span>`;
@@ -279,21 +262,17 @@
     return { title: clean.trim(), snippet: ex.slice(0, maxLen) };
   }
 
-  // —— 种子→条目（固定池） ——
   async function fetchBySeed(seed, minLen=120, maxLen=500) {
-    const pool = await getFixedPool();                 // 固定池稳定存在
-    const base = fnv1a32(seed) % pool.length;          // 种子→索引
-    // 线性探测，跳过超短或不合格摘要
+    const pool = await getFixedPool();
+    const base = fnv1a32(seed) % pool.length;
     for (let k=0; k<Math.min(64, pool.length); k++) {
       const t = pool[(base + k) % pool.length];
       try { return await fetchSummaryByTitle(t, minLen, maxLen); } catch {}
     }
-    // 实在不行用固定备份标题
     const fb = FALLBACK_POOL[fnv1a32("fb:"+seed) % FALLBACK_POOL.length];
     return await fetchSummaryByTitle(fb, minLen, maxLen);
   }
 
-  // —— 备选：真正随机（只作为极端兜底，不用于“默认开局”） ——
   async function fetchRandom(minLen=120, maxLen=500, tries=10) {
     for (let i=0;i<tries;i++){
       const r = await fetch(API_RANDOM);
@@ -312,7 +291,6 @@
     return true;
   }
 
-  // —— 开局（仅三种：seed 指定 / URL seed / 默认随机“先造种子→按种子取题”） ——
   async function startNew(options = {}) {
     setUIEnabled(false);
     elAns.textContent = "";
@@ -327,13 +305,10 @@
       let got, seedUsed = "";
 
       if (options.seed) {
-        // 指定房间码
         got = await fetchBySeed(options.seed, 120, 500);
         seedUsed = options.seed;
       } else {
-        // 默认也走“种子驱动”，保证“显示的房间码 = 本局永久映射”
         const base = Math.random().toString(36).slice(2, 8);
-        // 最多尝试 32 次，确保拿到合格摘要
         let used = base, ok = null;
         for (let i=0;i<32;i++){
           const s = i === 0 ? base : `${base}-${i}`;
@@ -370,7 +345,6 @@
     }
   }
 
-  // —— 交互 —— 
   function onGuess() {
     resetMsg();
     const s = elGuess.value.trim();
@@ -436,7 +410,6 @@
     setUIEnabled(false);
   }
 
-  // 事件绑定
   elBtnNew.addEventListener("click", () => startNew());
   elBtnGuess.addEventListener("click", onGuess);
   elBtnHint.addEventListener("click", onHint);
@@ -449,7 +422,6 @@
     startNew({seed: s});
   });
 
-  // 首次自动：若 URL 带 ?seed 则按其开局，否则默认生成种子
   (function bootstrap() {
     const p = new URLSearchParams(location.search);
     const seed = p.get("seed") || "";
@@ -460,6 +432,7 @@
 </script>
 </body>
 </html>
+
 
 
 
